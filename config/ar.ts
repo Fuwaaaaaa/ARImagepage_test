@@ -1,53 +1,27 @@
-export type OnLostBehavior = 'pause' | 'reset' | 'continue';
-export type ARMediaCrossOrigin = 'anonymous' | 'use-credentials';
-export type ARVideoPreload = 'auto' | 'metadata' | 'none';
+import type { z } from 'zod';
+import {
+  arAudioOverlaySchema,
+  arConfigSchema,
+  arImageOverlaySchema,
+  arMediaCrossOriginSchema,
+  arOverlaySchema,
+  arTargetSchema,
+  arVideoOverlaySchema,
+  arVideoPreloadSchema,
+  onLostBehaviorSchema,
+} from './ar.schema';
 
-type SpatialProps = {
-  position?: string;
-  rotation?: string;
-};
+export type OnLostBehavior = z.infer<typeof onLostBehaviorSchema>;
+export type ARMediaCrossOrigin = z.infer<typeof arMediaCrossOriginSchema>;
+export type ARVideoPreload = z.infer<typeof arVideoPreloadSchema>;
 
-type SizedProps = SpatialProps & {
-  width: number;
-  height: number;
-};
+export type ARImageOverlay = z.infer<typeof arImageOverlaySchema>;
+export type ARVideoOverlay = z.infer<typeof arVideoOverlaySchema>;
+export type ARAudioOverlay = z.infer<typeof arAudioOverlaySchema>;
 
-export type ARImageOverlay = SizedProps & {
-  kind: 'image';
-  src: string;
-};
-
-export type ARVideoOverlay = SizedProps & {
-  kind: 'video';
-  src: string;
-  loop?: boolean;
-  muted?: boolean;
-  crossOrigin?: ARMediaCrossOrigin;
-  preload?: ARVideoPreload;
-  onLost?: OnLostBehavior;
-};
-
-export type ARAudioOverlay = {
-  kind: 'audio';
-  src: string;
-  loop?: boolean;
-  volume?: number;
-  crossOrigin?: ARMediaCrossOrigin;
-  onLost?: OnLostBehavior;
-};
-
-export type AROverlay = ARImageOverlay | ARVideoOverlay | ARAudioOverlay;
-
-export type ARTarget = {
-  id: string;
-  targetIndex: number;
-  overlays: AROverlay[];
-};
-
-export type ARConfig = {
-  mindFile: string;
-  targets: ARTarget[];
-};
+export type AROverlay = z.infer<typeof arOverlaySchema>;
+export type ARTarget = z.infer<typeof arTargetSchema>;
+export type ARConfig = z.infer<typeof arConfigSchema>;
 
 export const defaultARConfig: ARConfig = {
   mindFile: '/targets.mind',

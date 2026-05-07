@@ -14,6 +14,11 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: 'on-first-retry',
     video: 'retain-on-failure',
+    // Pin to ja-JP so the i18n auto-detection inside <ARScene> renders the
+    // Japanese label table that existing specs assert against. Specs that
+    // intentionally exercise the English path can override per-test via
+    // `test.use({ locale: 'en-US' })`.
+    locale: 'ja-JP',
   },
   projects: [
     {

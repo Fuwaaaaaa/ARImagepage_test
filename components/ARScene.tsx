@@ -1,9 +1,11 @@
 'use client';
 
 import Script from 'next/script';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { defaultARConfig, type ARConfig } from '@/config/ar';
+import { arConfigSchema } from '@/config/ar.schema';
 import { AFRAME_SRC, MINDAR_SRC } from '@/lib/ar/cdn';
+import { detectLang, resolveLabels, type ARLang } from '@/lib/ar/i18n';
 import { hasMediaOverlay } from '@/lib/ar/overlay';
 import { ARSceneStage } from './ar/ARSceneStage';
 import {
@@ -11,6 +13,7 @@ import {
   ErrorPanel,
   Loading,
   type ErrorKind,
+  type InvalidConfigIssue,
 } from './ar/ARStatusOverlay';
 import { MuteToggle, useMuteToggleState } from './ar/MuteToggle';
 import { useCameraPermission } from './ar/useCameraPermission';
@@ -19,9 +22,65 @@ import { useTargetMediaControl } from './ar/useTargetMediaControl';
 
 export type ARSceneProps = {
   config?: ARConfig;
+  lang?: ARLang;
 };
 
-export default function ARScene({ config = defaultARConfig }: ARSceneProps = {}) {
+/**
+ * Outer guard: validates the incoming config at runtime via Zod and either
+ * delegates to `<ARSceneInner>` or short-circuits to an `'invalid-config'`
+ * error panel.
+ *
+ * The outer/inner split is deliberate: when the config is invalid we must
+ * not call any of the AR hooks (`useCameraPermission`, `useExternalScripts`,
+ * `useTargetMediaControl`, etc.). Doing the safeParse in the outer
+ * component keeps Rules of Hooks intact across both render paths.
+ */
+export default function ARScene({
+  config = defaultARConfig,
+  lang,
+}: ARSceneProps = {}) {
+  const parsed = arConfigSchema.safeParse(config);
+
+  if (!parsed.success) {
+    // SSR-safe: resolveLabels(undefined) returns ja under SSR. The outer
+    // component never rehydrates `<ARSceneInner>`, so the lang flicker
+    // workaround used inside the inner is unnecessary here.
+    const labels = resolveLabels(lang);
+    const issues: InvalidConfigIssue[] = parsed.error.issues.map((issue) => ({
+      path: issue.path.join('.'),
+      message: issue.message,
+    }));
+    return (
+      <div className="fixed inset-0 bg-black text-white">
+        <ARCloseButton lang={lang} />
+        <ErrorPanel
+          kind="invalid-config"
+          message={labels.errors.invalidConfigMessage}
+          issues={issues}
+          lang={lang}
+        />
+      </div>
+    );
+  }
+
+  return <ARSceneInner config={parsed.data} lang={lang} />;
+}
+
+function ARSceneInner({ config, lang }: { config: ARConfig; lang?: ARLang }) {
+  // When `lang` is omitted, start with the SSR-safe default ('ja' from
+  // `resolveLabels(undefined)`) and switch to the client-detected language
+  // after mount. This avoids a hydration mismatch on en-locale clients —
+  // a one-frame post-mount state update is the correct pattern here, even
+  // though it trips React's default "no setState in effect" guideline.
+  const [resolvedLang, setResolvedLang] = useState<ARLang | undefined>(lang);
+  useEffect(() => {
+    if (lang) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setResolvedLang(detectLang());
+  }, [lang]);
+
+  const labels = resolveLabels(resolvedLang);
+
   const { permission, errorMessage, errorName } = useCameraPermission();
   const canLoadScripts = permission === 'granted';
 
@@ -72,10 +131,10 @@ export default function ARScene({ config = defaultARConfig }: ARSceneProps = {})
     permission === 'unknown-error';
 
   const loadingLabel = (() => {
-    if (permission === 'pending') return 'カメラを準備中...';
-    if (canLoadScripts && !aframeLoaded) return 'A-Frame を読み込み中...';
+    if (permission === 'pending') return labels.loading.permissionPending;
+    if (canLoadScripts && !aframeLoaded) return labels.loading.aframe;
     if (canLoadScripts && aframeLoaded && !mindarLoaded)
-      return 'MindAR を読み込み中...';
+      return labels.loading.mindar;
     return null;
   })();
 
@@ -98,7 +157,7 @@ export default function ARScene({ config = defaultARConfig }: ARSceneProps = {})
         />
       )}
 
-      <ARCloseButton />
+      <ARCloseButton lang={resolvedLang} />
 
       {!isPermissionError && !timedOut && loadingLabel && (
         <Loading label={loadingLabel} />
@@ -109,13 +168,15 @@ export default function ARScene({ config = defaultARConfig }: ARSceneProps = {})
           kind={permission as ErrorKind}
           message={errorMessage}
           errorName={errorName}
+          lang={resolvedLang}
         />
       )}
 
       {timedOut && !isPermissionError && (
         <ErrorPanel
           kind="timeout"
-          message="ネットワーク接続を確認して再読み込みしてください。AR エンジンの読み込みに 15 秒以上かかりました。"
+          message={labels.errors.timeoutMessage}
+          lang={resolvedLang}
         />
       )}
 
@@ -123,7 +184,9 @@ export default function ARScene({ config = defaultARConfig }: ARSceneProps = {})
         {sceneActive && <ARSceneStage config={config} />}
       </div>
 
-      {showMuteToggle && <MuteToggle muted={muted} onChange={setMuted} />}
+      {showMuteToggle && (
+        <MuteToggle muted={muted} onChange={setMuted} lang={resolvedLang} />
+      )}
     </div>
   );
 }

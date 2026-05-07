@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { resolveLabels, type ARLang } from '@/lib/ar/i18n';
 
 const STORAGE_KEY = 'ar-muted';
 
@@ -19,13 +20,17 @@ function readPersistedMuted(initial: boolean): boolean {
 export type MuteToggleProps = {
   muted: boolean;
   onChange: (next: boolean) => void;
+  lang?: ARLang;
 };
 
-export function MuteToggle({ muted, onChange }: MuteToggleProps) {
+export function MuteToggle({ muted, onChange, lang }: MuteToggleProps) {
+  const labels = resolveLabels(lang);
   return (
     <button
       type="button"
-      aria-label={muted ? 'ミュートを解除' : 'ミュートにする'}
+      aria-label={
+        muted ? labels.mute.unmuteAriaLabel : labels.mute.muteAriaLabel
+      }
       aria-pressed={!muted}
       onClick={() => onChange(!muted)}
       className="fixed bottom-6 right-6 z-50 inline-flex h-14 w-14 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur transition hover:bg-black/80 active:scale-95"

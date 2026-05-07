@@ -233,6 +233,29 @@ describe('useTargetMediaControl', () => {
     }).not.toThrow();
   });
 
+  it('caches media-element lookups: getElementById is not called per event', () => {
+    const getByIdSpy = vi.spyOn(document, 'getElementById');
+    renderHook(() =>
+      useTargetMediaControl({
+        containerRef: setup.containerRef,
+        config: videoConfig(),
+        enabled: true,
+      }),
+    );
+
+    const callsAfterSetup = getByIdSpy.mock.calls.length;
+    expect(callsAfterSetup).toBeGreaterThan(0);
+
+    setup.entity.dispatchEvent(new Event('targetFound'));
+    setup.entity.dispatchEvent(new Event('targetLost'));
+    setup.entity.dispatchEvent(new Event('targetFound'));
+    setup.entity.dispatchEvent(new Event('targetLost'));
+
+    // No new getElementById calls during event dispatch — the Map cache built
+    // at setup time services every lookup.
+    expect(getByIdSpy.mock.calls.length).toBe(callsAfterSetup);
+  });
+
   it('applies the configured volume to audio overlays on mount', () => {
     const audio = document.createElement('audio');
     audio.id = 'ar-asset-primary-0';

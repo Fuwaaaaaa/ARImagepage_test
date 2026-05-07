@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type RefObject } from 'react';
 import type { ARConfig, ARTarget, OnLostBehavior } from '@/config/ar';
+import { arLog } from '@/lib/ar/debug';
 import { collectMediaAssets } from '@/lib/ar/overlay';
 
 type MediaSpec = {
@@ -40,17 +41,35 @@ function collectMediaSpecs(targets: ARTarget[]): MediaSpec[] {
   return specs;
 }
 
-function getMediaElement(assetId: string): HTMLMediaElement | null {
-  if (typeof document === 'undefined') return null;
-  const el = document.getElementById(assetId);
-  return el instanceof HTMLMediaElement ? el : null;
+/**
+ * Build a once-per-effect-run lookup from `assetId` to its DOM media element.
+ * Replaces the previous `document.getElementById(assetId)` call on every
+ * `targetFound` / `targetLost` dispatch — turns N event-handler lookups into
+ * N initial setup lookups + O(1) reads thereafter.
+ */
+function buildElementMap(specs: MediaSpec[]): Map<string, HTMLMediaElement> {
+  const map = new Map<string, HTMLMediaElement>();
+  if (typeof document === 'undefined') return map;
+  for (const spec of specs) {
+    const el = document.getElementById(spec.assetId);
+    if (el instanceof HTMLMediaElement) {
+      map.set(spec.assetId, el);
+    }
+  }
+  return map;
 }
 
-function safePlay(el: HTMLMediaElement) {
+function safePlay(el: HTMLMediaElement, assetId: string) {
   try {
     const p = el.play();
     if (p && typeof p.catch === 'function') {
-      p.catch(() => undefined);
+      p.catch((err: unknown) => {
+        const name =
+          err instanceof Error || (err && typeof err === 'object' && 'name' in err)
+            ? (err as { name?: unknown }).name
+            : undefined;
+        arLog('ar:play-rejected', { assetId, name });
+      });
     }
   } catch {
     /* noop — non-Promise play() in old browsers */
@@ -91,11 +110,15 @@ export function useTargetMediaControl({
     const specs = collectMediaSpecs(config.targets);
     if (specs.length === 0) return;
 
+    const elements = buildElementMap(specs);
+
     for (const spec of specs) {
-      const el = getMediaElement(spec.assetId);
+      const el = elements.get(spec.assetId);
       if (!el) continue;
       if (typeof spec.volume === 'number') {
-        el.volume = Math.max(0, Math.min(1, spec.volume));
+        const clamped = Math.max(0, Math.min(1, spec.volume));
+        el.volume = clamped;
+        arLog('ar:volume', { assetId: spec.assetId, volume: clamped });
       }
     }
 
@@ -116,18 +139,23 @@ export function useTargetMediaControl({
 
       const onFound = () => {
         foundTargetIdsRef.current.add(targetId);
+        arLog('ar:targetFound', {
+          targetId,
+          assetIds: targetSpecs.map((s) => s.assetId),
+        });
         for (const spec of targetSpecs) {
-          const el = getMediaElement(spec.assetId);
+          const el = elements.get(spec.assetId);
           if (!el) continue;
           el.muted = mutedRef.current;
-          safePlay(el);
+          safePlay(el, spec.assetId);
         }
       };
 
       const onLost = () => {
         foundTargetIdsRef.current.delete(targetId);
         for (const spec of targetSpecs) {
-          const el = getMediaElement(spec.assetId);
+          arLog('ar:targetLost', { targetId, onLost: spec.onLost });
+          const el = elements.get(spec.assetId);
           if (!el) continue;
           if (spec.onLost === 'continue') continue;
           el.pause();
@@ -153,7 +181,7 @@ export function useTargetMediaControl({
     return () => {
       for (const fn of cleanups) fn();
       for (const spec of specs) {
-        const el = getMediaElement(spec.assetId);
+        const el = elements.get(spec.assetId);
         if (el) el.pause();
       }
       foundTargetIds.clear();
@@ -163,14 +191,21 @@ export function useTargetMediaControl({
   useEffect(() => {
     // Keep the latest muted value reachable from event handlers without
     // re-attaching listeners every time the toggle flips.
+    const previousMuted = mutedRef.current;
     mutedRef.current = muted;
 
     if (!enabled) return;
     const specs = collectMediaSpecs(config.targets);
     if (specs.length === 0) return;
 
+    const elements = buildElementMap(specs);
+
+    if (previousMuted !== muted) {
+      arLog('ar:mute-toggle', { muted });
+    }
+
     for (const spec of specs) {
-      const el = getMediaElement(spec.assetId);
+      const el = elements.get(spec.assetId);
       if (!el) continue;
       el.muted = muted;
     }
@@ -178,9 +213,9 @@ export function useTargetMediaControl({
     if (!muted) {
       for (const spec of specs) {
         if (!foundTargetIdsRef.current.has(spec.targetId)) continue;
-        const el = getMediaElement(spec.assetId);
+        const el = elements.get(spec.assetId);
         if (!el) continue;
-        safePlay(el);
+        safePlay(el, spec.assetId);
       }
     }
   }, [muted, enabled, config]);

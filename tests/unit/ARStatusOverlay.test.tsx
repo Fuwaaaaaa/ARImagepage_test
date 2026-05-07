@@ -30,6 +30,7 @@ describe('ErrorPanel', () => {
     { kind: 'no-https', titleMatcher: /HTTPS/ },
     { kind: 'unknown-error', titleMatcher: /失敗しました/ },
     { kind: 'timeout', titleMatcher: /読み込みに失敗/ },
+    { kind: 'invalid-config', titleMatcher: /設定が無効/ },
   ];
 
   for (const { kind, titleMatcher } of cases) {
@@ -66,5 +67,45 @@ describe('ErrorPanel', () => {
     render(<ErrorPanel kind="denied" message="msg" />);
     const back = screen.getByRole('link', { name: /ホームに戻る/ });
     expect(back).toHaveAttribute('href', '/');
+  });
+
+  it('renders an English heading when lang="en"', () => {
+    render(<ErrorPanel kind="denied" message="msg" lang="en" />);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(
+      /Camera access is not allowed/,
+    );
+  });
+
+  it('renders the issues list for kind=invalid-config', () => {
+    render(
+      <ErrorPanel
+        kind="invalid-config"
+        message="config broken"
+        issues={[
+          { path: 'targets.0.overlays.0.width', message: 'must be positive' },
+          { path: '', message: 'mindFile required' },
+        ]}
+      />,
+    );
+    expect(screen.getByText('targets.0.overlays.0.width')).toBeInTheDocument();
+    expect(screen.getByText(/must be positive/)).toBeInTheDocument();
+    expect(screen.getByText('(root)')).toBeInTheDocument();
+  });
+
+  it('hides the reload button for kind=invalid-config', () => {
+    render(<ErrorPanel kind="invalid-config" message="msg" />);
+    expect(
+      screen.queryByRole('button', { name: /再読み込み/ }),
+    ).not.toBeInTheDocument();
+    // home link is still present
+    expect(screen.getByRole('link', { name: /ホームに戻る/ })).toBeInTheDocument();
+  });
+});
+
+describe('ARCloseButton with lang', () => {
+  it('renders the English close label when lang="en"', () => {
+    render(<ARCloseButton lang="en" />);
+    const link = screen.getByRole('link', { name: /Close AR and return home/ });
+    expect(link).toHaveAttribute('href', '/');
   });
 });

@@ -4,6 +4,7 @@ import {
   type ARConfig,
   type AROverlay,
 } from '@/config/ar';
+import { arConfigSchema } from '@/config/ar.schema';
 import { multiARConfig } from '@/config/ar.example-multi';
 
 function isHttpUrl(value: string): boolean {
@@ -75,6 +76,125 @@ describe('defaultARConfig', () => {
 
   it('passes the schema validation', () => {
     assertValidARConfig(defaultARConfig);
+  });
+});
+
+describe('arConfigSchema runtime validation', () => {
+  it('accepts the bundled defaultARConfig', () => {
+    expect(arConfigSchema.safeParse(defaultARConfig).success).toBe(true);
+  });
+
+  it('accepts the bundled multiARConfig', () => {
+    expect(arConfigSchema.safeParse(multiARConfig).success).toBe(true);
+  });
+
+  it('rejects an empty object with mindFile + targets issues', () => {
+    const result = arConfigSchema.safeParse({});
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const paths = result.error.issues.map((i) => i.path.join('.'));
+    expect(paths).toContain('mindFile');
+    expect(paths).toContain('targets');
+  });
+
+  it('rejects targets: []', () => {
+    const result = arConfigSchema.safeParse({
+      mindFile: '/x.mind',
+      targets: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects overlays: []', () => {
+    const result = arConfigSchema.safeParse({
+      mindFile: '/x.mind',
+      targets: [{ id: 'p', targetIndex: 0, overlays: [] }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects targetIndex: -1', () => {
+    const result = arConfigSchema.safeParse({
+      mindFile: '/x.mind',
+      targets: [
+        {
+          id: 'p',
+          targetIndex: -1,
+          overlays: [{ kind: 'image', src: '/o.png', width: 1, height: 1 }],
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects width: 0 on an image overlay', () => {
+    const result = arConfigSchema.safeParse({
+      mindFile: '/x.mind',
+      targets: [
+        {
+          id: 'p',
+          targetIndex: 0,
+          overlays: [{ kind: 'image', src: '/o.png', width: 0, height: 1 }],
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects height: -1 on a video overlay', () => {
+    const result = arConfigSchema.safeParse({
+      mindFile: '/x.mind',
+      targets: [
+        {
+          id: 'p',
+          targetIndex: 0,
+          overlays: [{ kind: 'video', src: '/v.mp4', width: 1, height: -1 }],
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects volume: 1.5 on an audio overlay', () => {
+    const result = arConfigSchema.safeParse({
+      mindFile: '/x.mind',
+      targets: [
+        {
+          id: 'p',
+          targetIndex: 0,
+          overlays: [{ kind: 'audio', src: '/a.mp3', volume: 1.5 }],
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an unknown overlay kind via the discriminated union', () => {
+    const result = arConfigSchema.safeParse({
+      mindFile: '/x.mind',
+      targets: [
+        {
+          id: 'p',
+          targetIndex: 0,
+          overlays: [{ kind: 'mesh', src: '/m.glb' }],
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an empty mindFile string', () => {
+    const result = arConfigSchema.safeParse({
+      mindFile: '',
+      targets: [
+        {
+          id: 'p',
+          targetIndex: 0,
+          overlays: [{ kind: 'image', src: '/o.png', width: 1, height: 1 }],
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
   });
 });
 

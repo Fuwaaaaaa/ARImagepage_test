@@ -28,6 +28,17 @@ describe('<MuteToggle />', () => {
     fireEvent.click(getByRole('button'));
     expect(onChange).toHaveBeenCalledWith(false);
   });
+
+  it('renders English aria-labels when lang="en"', () => {
+    const { getByRole, rerender } = render(
+      <MuteToggle muted={true} onChange={() => undefined} lang="en" />,
+    );
+    const button = getByRole('button');
+    expect(button.getAttribute('aria-label')).toBe('Unmute');
+
+    rerender(<MuteToggle muted={false} onChange={() => undefined} lang="en" />);
+    expect(button.getAttribute('aria-label')).toBe('Mute');
+  });
 });
 
 describe('useMuteToggleState', () => {
