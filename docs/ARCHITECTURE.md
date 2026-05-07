@@ -184,11 +184,13 @@ Adding a third language means: extend the `ARLang` union, fill out the
 `defaultARLabels[<newLang>]` table, and update `detectLang()`'s prefix
 match.
 
-The `useCameraPermission` hook still emits Japanese-only dynamic error
-messages (e.g. "カメラの利用が拒否されました…"). Those strings flow
-through the `<ErrorPanel message=...>` prop and are rendered as-is —
-they are intentionally out of scope for the current i18n pass and can
-be localized in a follow-up.
+`useCameraPermission` returns only structured state (`permission` plus
+an optional `errorDetail` carrying the raw `DOMException.message` for
+the `unknown-error` branch). `<ARSceneInner>` composes the final user-
+facing message from `labels.errors.permission.{denied | noCamera |
+noHttps | unknownError}`, appending `: ${errorDetail}` to the
+`unknownError` prefix when one is present. Adding a third language
+therefore requires no hook changes — only the label table.
 
 ## Debug logging
 
