@@ -150,7 +150,7 @@ import ARScene from '@/components/ARScene';
 
 The supported languages are `'ja'` (default) and `'en'`. When `lang` is omitted, the component renders Japanese on the server and switches to the detected client language post-mount — accepting a one-frame flicker in exchange for hydration safety. To skip the flicker, pass `lang` explicitly. The label tables live in [`lib/ar/i18n.ts`](./lib/ar/i18n.ts).
 
-The dynamic error messages produced by `useCameraPermission` (e.g. "the user denied camera access") remain Japanese in this release and can be localized in a follow-up.
+All error messages — including the dynamic ones for camera permission failures — are sourced from the same label table. `useCameraPermission` returns structured state only, and `<ARSceneInner>` composes the final user-facing message from the active locale.
 
 ## Debug logging
 

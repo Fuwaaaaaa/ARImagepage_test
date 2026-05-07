@@ -10,16 +10,25 @@ export type PermissionState =
   | 'no-https'
   | 'unknown-error';
 
+/**
+ * Hook returns only the structured permission outcome — message text is
+ * composed by the caller from `lib/ar/i18n` so that error UI is localized
+ * via the same `lang` prop that drives the rest of `<ARScene>`.
+ *
+ * `errorDetail` carries the raw `DOMException.message` (or `name` fallback)
+ * for the `unknown-error` branch only; other states leave it `undefined`
+ * because their messages are fully fixed strings.
+ */
 export type UseCameraPermissionResult = {
   permission: PermissionState;
-  errorMessage: string;
   errorName?: string;
+  errorDetail?: string;
 };
 
 export function useCameraPermission(): UseCameraPermissionResult {
   const [permission, setPermission] = useState<PermissionState>('pending');
-  const [errorMessage, setErrorMessage] = useState<string>('');
   const [errorName, setErrorName] = useState<string | undefined>(undefined);
+  const [errorDetail, setErrorDetail] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,9 +41,6 @@ export function useCameraPermission(): UseCameraPermissionResult {
       ) {
         if (!cancelled) {
           setPermission('no-https');
-          setErrorMessage(
-            'カメラ API が利用できません。HTTPS 接続(または localhost)からアクセスしてください。',
-          );
         }
         return;
       }
@@ -51,22 +57,14 @@ export function useCameraPermission(): UseCameraPermissionResult {
         setErrorName(error.name);
         if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
           setPermission('denied');
-          setErrorMessage(
-            'カメラの利用が拒否されました。ブラウザの設定からカメラ許可を有効にして再読み込みしてください。',
-          );
         } else if (
           error.name === 'NotFoundError' ||
           error.name === 'OverconstrainedError'
         ) {
           setPermission('no-camera');
-          setErrorMessage(
-            '利用可能なカメラが見つかりませんでした。デバイスにカメラが接続されているか確認してください。',
-          );
         } else {
           setPermission('unknown-error');
-          setErrorMessage(
-            `カメラの起動に失敗しました: ${error.message ?? error.name}`,
-          );
+          setErrorDetail(error.message ?? error.name);
         }
       }
     }
@@ -77,5 +75,5 @@ export function useCameraPermission(): UseCameraPermissionResult {
     };
   }, []);
 
-  return { permission, errorMessage, errorName };
+  return { permission, errorName, errorDetail };
 }

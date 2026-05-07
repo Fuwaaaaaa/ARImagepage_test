@@ -39,6 +39,18 @@ export type ARLabels = {
     noHttpsHint: string;
     detailsSummary: string;
     nameLabel: string;
+    /**
+     * Dynamic camera-permission messages composed by `<ARSceneInner>` from
+     * the structured `permission` + `errorDetail` returned by
+     * `useCameraPermission`. `unknownError` is the prefix only — the caller
+     * appends `: ${errorDetail}` when a raw DOMException message is available.
+     */
+    permission: {
+      denied: string;
+      noCamera: string;
+      noHttps: string;
+      unknownError: string;
+    };
   };
   close: {
     aria: string;
@@ -77,6 +89,15 @@ export const defaultARLabels: Record<ARLang, ARLabels> = {
       noHttpsHint: 'pnpm dev:https',
       detailsSummary: '詳細を表示',
       nameLabel: 'name:',
+      permission: {
+        denied:
+          'カメラの利用が拒否されました。ブラウザの設定からカメラ許可を有効にして再読み込みしてください。',
+        noCamera:
+          '利用可能なカメラが見つかりませんでした。デバイスにカメラが接続されているか確認してください。',
+        noHttps:
+          'カメラ API が利用できません。HTTPS 接続(または localhost)からアクセスしてください。',
+        unknownError: 'カメラの起動に失敗しました',
+      },
     },
     close: {
       aria: 'AR を閉じてホームに戻る',
@@ -113,6 +134,15 @@ export const defaultARLabels: Record<ARLang, ARLabels> = {
       noHttpsHint: 'pnpm dev:https',
       detailsSummary: 'Show details',
       nameLabel: 'name:',
+      permission: {
+        denied:
+          'Camera access was denied. Enable camera permission in your browser settings and reload the page.',
+        noCamera:
+          'No camera is available. Make sure a camera is connected to this device.',
+        noHttps:
+          'The camera API is not available. Open this page over HTTPS (or via localhost).',
+        unknownError: 'Failed to start the camera',
+      },
     },
     close: {
       aria: 'Close AR and return home',

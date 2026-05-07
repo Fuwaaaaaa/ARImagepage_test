@@ -81,7 +81,7 @@ function ARSceneInner({ config, lang }: { config: ARConfig; lang?: ARLang }) {
 
   const labels = resolveLabels(resolvedLang);
 
-  const { permission, errorMessage, errorName } = useCameraPermission();
+  const { permission, errorName, errorDetail } = useCameraPermission();
   const canLoadScripts = permission === 'granted';
 
   const {
@@ -130,6 +130,17 @@ function ARSceneInner({ config, lang }: { config: ARConfig; lang?: ARLang }) {
     permission === 'no-https' ||
     permission === 'unknown-error';
 
+  const permissionMessage = (() => {
+    const m = labels.errors.permission;
+    if (permission === 'denied') return m.denied;
+    if (permission === 'no-camera') return m.noCamera;
+    if (permission === 'no-https') return m.noHttps;
+    if (permission === 'unknown-error') {
+      return errorDetail ? `${m.unknownError}: ${errorDetail}` : m.unknownError;
+    }
+    return '';
+  })();
+
   const loadingLabel = (() => {
     if (permission === 'pending') return labels.loading.permissionPending;
     if (canLoadScripts && !aframeLoaded) return labels.loading.aframe;
@@ -166,7 +177,7 @@ function ARSceneInner({ config, lang }: { config: ARConfig; lang?: ARLang }) {
       {isPermissionError && (
         <ErrorPanel
           kind={permission as ErrorKind}
-          message={errorMessage}
+          message={permissionMessage}
           errorName={errorName}
           lang={resolvedLang}
         />

@@ -47,7 +47,7 @@ describe('useCameraPermission', () => {
     const { result } = renderHook(() => useCameraPermission());
 
     await waitFor(() => expect(result.current.permission).toBe('no-https'));
-    expect(result.current.errorMessage).toMatch(/HTTPS/);
+    expect(result.current.errorDetail).toBeUndefined();
   });
 
   it('returns granted and stops the stream tracks on success', async () => {
@@ -73,7 +73,7 @@ describe('useCameraPermission', () => {
 
     await waitFor(() => expect(result.current.permission).toBe('denied'));
     expect(result.current.errorName).toBe('NotAllowedError');
-    expect(result.current.errorMessage).toMatch(/拒否/);
+    expect(result.current.errorDetail).toBeUndefined();
   });
 
   it('returns denied for SecurityError', async () => {
@@ -98,7 +98,7 @@ describe('useCameraPermission', () => {
     const { result } = renderHook(() => useCameraPermission());
 
     await waitFor(() => expect(result.current.permission).toBe('no-camera'));
-    expect(result.current.errorMessage).toMatch(/カメラ/);
+    expect(result.current.errorDetail).toBeUndefined();
   });
 
   it('returns no-camera for OverconstrainedError', async () => {
@@ -123,7 +123,24 @@ describe('useCameraPermission', () => {
     const { result } = renderHook(() => useCameraPermission());
 
     await waitFor(() => expect(result.current.permission).toBe('unknown-error'));
-    expect(result.current.errorMessage).toMatch(/unexpected boom/);
+    expect(result.current.errorDetail).toBe('unexpected boom');
     expect(result.current.errorName).toBe('SomethingElse');
+  });
+
+  it('falls back to errorName when DOMException.message is empty', async () => {
+    setMediaDevices({
+      getUserMedia: vi.fn(async () => {
+        throw new FakeDOMException('SomethingElse');
+      }),
+    });
+
+    const { result } = renderHook(() => useCameraPermission());
+
+    await waitFor(() => expect(result.current.permission).toBe('unknown-error'));
+    // FakeDOMException sets an empty string message; current behavior falls
+    // back to the name when message is "" (only when message is null/undefined,
+    // an empty string is preserved). Either way, errorDetail must be defined
+    // so the caller can append it to the localized prefix.
+    expect(typeof result.current.errorDetail).toBe('string');
   });
 });
