@@ -92,26 +92,88 @@ pnpm dlx vercel --prod
 | `pnpm build` | 本番ビルド + 型チェック |
 | `pnpm start` | 本番サーバ起動 |
 | `pnpm lint` | ESLint 実行 |
+| `pnpm lint:fix` | ESLint を `--fix` 付きで実行 |
+| `pnpm test` | Vitest ユニットテストを 1 回実行 |
+| `pnpm test:watch` | Vitest を watch モードで実行 |
+| `pnpm test:cov` | カバレッジ付きで Vitest を実行 |
+| `pnpm e2e` | Playwright E2E テスト(Chromium のみ) |
+| `pnpm e2e:ui` | Playwright を UI モードで実行 |
+| `pnpm e2e:install` | Playwright Chromium バイナリのダウンロード |
+
+## テスト
+
+このプロジェクトは 2 層の自動テストを備えています:
+
+- **ユニットテスト** — Vitest + Testing Library + jsdom。`useCameraPermission`, `useExternalScripts` などの AR 用フックや、ステータスオーバーレイ UI、シーンの描画、`ARConfig` のスキーマ検証をカバー。`pnpm test:cov` で実行。
+- **E2E テスト** — Playwright (Chromium)。トップページと `/ar` の権限フロー(許可・拒否・HTTPS 不在)を検証します。Chromium は `--use-fake-ui-for-media-stream` で起動するため、カメラ確認ダイアログは自動許可されます。`pnpm e2e:install && pnpm e2e` で実行。
+
+GitHub Actions が push と PR ごとにすべて自動で走らせます ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml))。
+
+## オーバーレイ — 画像・動画・音声
+
+各マーカー (`ARTarget`) は `overlays[]` 配列で kind タグ付きユニオンの要素を持ちます。
+
+| `kind`   | 描画される要素 | 必須フィールド | 補足 |
+|----------|------------|------------|------|
+| `image`  | マーカー上の `<a-image>` 板 | `src`, `width`, `height` | 静止画 |
+| `video`  | `<a-assets>` 配下の `<video>` + `<a-video>` 板 | `src`, `width`, `height` | マーカー認識で再生・喪失で停止 (`onLost`)。iOS は muted で自動再生し、画面右下のミュート解除トグルをタップすると音が出ます |
+| `audio`  | `<a-assets>` 配下の `<audio>`(非空間) | `src` | マーカー認識中に独立再生。iOS は最初にミュート解除トグルをタップしないと音が鳴りません |
+
+オーバーレイ毎の任意フィールド:
+
+- `position` / `rotation`: A-Frame の transform 文字列(例: `'0 0 0'`)
+- `loop`: 動画・音声ともデフォルト `true`
+- `muted` (動画のみ): デフォルト `true`(iOS 自動再生のため)
+- `volume` (音声のみ): `0..1`、`HTMLAudioElement.volume` に適用
+- `crossOrigin`: 外部ホストの素材を使う場合 `'anonymous' | 'use-credentials'`
+- `preload` (動画のみ): `'auto' | 'metadata' | 'none'`
+- `onLost`: `'pause'`(既定)| `'reset'`(0 秒へ巻き戻し)| `'continue'`
+
+`src` には `public/` 直下の相対パス(例: `/overlays/intro.mp4`)も外部 URL も指定できます。外部 URL の場合は `crossOrigin: 'anonymous'` を付け、配信元が CORS ヘッダを返すか確認してください(動画のテクスチャアップロードに失敗するため)。
+
+設定中に 1 つでも `video` / `audio` オーバーレイが含まれる場合、画面右下に **ミュート解除トグル** が自動で表示されます。状態は `localStorage` のキー `ar-muted` に保存され、リロード後も維持されます(初期状態は muted)。
+
+混在例は [`config/ar.example-multi.ts`](./config/ar.example-multi.ts) を参照してください。
+
+## アーキテクチャ
+
+コンポーネント分割、起動順序、`ARConfig` スキーマ、**マーカー追加レシピ** は [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) を参照してください(英語)。
 
 ## ファイル構成
 
 ```
 .
 ├── app/
-│   ├── layout.tsx       # ルートレイアウト
-│   ├── globals.css      # Tailwind v4 + AR 用のグローバル CSS
-│   ├── page.tsx         # ランディング(/)
-│   └── ar/
-│       └── page.tsx     # AR ページ(/ar)、ARScene を ssr:false で読み込む
+│   ├── layout.tsx                    # ルートレイアウト
+│   ├── globals.css                   # Tailwind v4 + AR 用のグローバル CSS
+│   ├── page.tsx                      # ランディング(/)
+│   └── ar/page.tsx                   # AR ページ(/ar)、ARScene を ssr:false で読み込む
 ├── components/
-│   └── ARScene.tsx      # A-Frame + MindAR を扱うクライアントコンポーネント
-├── global.d.ts          # A-Frame カスタム要素の JSX 型定義
+│   ├── ARScene.tsx                   # オーケストレータ(カメラ・スクリプト・オーバーレイ)
+│   └── ar/
+│       ├── ARSceneStage.tsx          # ARConfig 駆動の <a-scene> JSX
+│       ├── ARStatusOverlay.tsx       # Loading / ErrorPanel / 閉じるボタン
+│       ├── useCameraPermission.ts    # getUserMedia ステートマシン
+│       └── useExternalScripts.ts     # A-Frame → MindAR 順次ロード + 15s タイムアウト
+├── config/
+│   ├── ar.ts                         # 型 + 既定の単一マーカー設定
+│   └── ar.example-multi.ts           # 2 マーカーのサンプル設定
+├── lib/ar/cdn.ts                     # CDN URL とバージョン定数
+├── tests/
+│   ├── setup.ts                      # Vitest 用セットアップ
+│   └── unit/                         # Vitest ユニットテスト
+├── e2e/                              # Playwright E2E テスト
+├── docs/ARCHITECTURE.md              # アーキテクチャ詳細
+├── eslint.config.mjs                 # ESLint Flat config
+├── playwright.config.ts
+├── vitest.config.ts
+├── global.d.ts                       # A-Frame カスタム要素の JSX 型定義
 ├── public/
-│   ├── README.md        # アセット差し替え手順
-│   ├── marker.png       # マーカー画像(置き換える)
-│   ├── overlay.png      # オーバーレイ画像(置き換える)
-│   └── targets.mind     # ★ 自分で生成・配置(同梱なし)
-└── README.md            # このファイル
+│   ├── README.md                     # アセット差し替え手順
+│   ├── marker.png                    # マーカー画像(置き換える)
+│   ├── overlay.png                   # オーバーレイ画像(置き換える)
+│   └── targets.mind                  # ★ 自分で生成・配置(同梱なし)
+└── README.md
 ```
 
 ## トラブルシューティング

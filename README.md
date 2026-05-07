@@ -88,27 +88,89 @@ Or import the GitHub repository in the Vercel dashboard — every push to `main`
 | `pnpm build` | Production build + type check |
 | `pnpm start` | Run the production build |
 | `pnpm lint` | Run ESLint |
+| `pnpm lint:fix` | Run ESLint with `--fix` |
+| `pnpm test` | Run Vitest unit tests once |
+| `pnpm test:watch` | Run Vitest in watch mode |
+| `pnpm test:cov` | Run Vitest with v8 coverage report |
+| `pnpm e2e` | Run Playwright E2E tests (Chromium only) |
+| `pnpm e2e:ui` | Run Playwright in UI mode |
+| `pnpm e2e:install` | Download Playwright Chromium binary |
+
+## Tests
+
+This project ships with two layers of automated tests:
+
+- **Unit tests** — Vitest + Testing Library + jsdom. Cover the AR hooks (`useCameraPermission`, `useExternalScripts`), the status overlay UI, the scene stage rendering, and config schema validation. Run with `pnpm test:cov`.
+- **E2E tests** — Playwright (Chromium). Verify the landing page and the `/ar` permission flows (granted, denied, no-https). Chromium is launched with `--use-fake-ui-for-media-stream` so camera prompts auto-resolve. Run with `pnpm e2e:install && pnpm e2e`.
+
+GitHub Actions runs all of the above on every push and PR — see [`.github/workflows/ci.yml`](./.github/workflows/ci.yml).
+
+## Overlays — image, video, audio
+
+Each marker (`ARTarget`) holds an `overlays[]` array of tagged-union entries:
+
+| `kind`   | Renders as | Required fields                         | Notes |
+|----------|-----------|-----------------------------------------|-------|
+| `image`  | `<a-image>` plane on the marker | `src`, `width`, `height` | Static texture. |
+| `video`  | `<video>` in `<a-assets>` + `<a-video>` plane | `src`, `width`, `height` | Plays when the marker is found, pauses when lost (`onLost`). iOS auto-mutes; the on-screen mute toggle un-mutes after a tap. |
+| `audio`  | `<audio>` in `<a-assets>` (non-spatial) | `src` | Plays alongside the marker; iOS requires the user to tap the mute toggle once before audio is audible. |
+
+Per-overlay options (all optional unless marked required above):
+
+- `position` / `rotation`: A-Frame transform strings (e.g. `'0 0 0'`).
+- `loop`: defaults to `true` for both video and audio.
+- `muted` (video only): defaults to `true` so iOS allows autoplay.
+- `volume` (audio only): `0..1`, applied to `HTMLAudioElement.volume`.
+- `crossOrigin`: `'anonymous' | 'use-credentials'` for external-host assets.
+- `preload` (video only): `'auto' | 'metadata' | 'none'`.
+- `onLost`: `'pause'` (default) | `'reset'` (rewinds to 0) | `'continue'`.
+
+`src` accepts both `public/`-relative paths (e.g. `/overlays/intro.mp4`) and absolute URLs. For external URLs, set `crossOrigin: 'anonymous'` and make sure the host returns CORS headers — otherwise the browser will fail texture upload for video.
+
+A floating mute / un-mute button is rendered automatically at the bottom-right whenever the active config contains at least one `video` or `audio` overlay. The state is persisted to `localStorage` under the key `ar-muted` (defaulting to muted) so reloads keep the user's preference.
+
+See [`config/ar.example-multi.ts`](./config/ar.example-multi.ts) for a config that mixes image, video and audio across two markers.
+
+## Architecture
+
+See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the component split, bootstrap order, the `ARConfig` schema, and a recipe for **adding a second marker** without touching component code.
 
 ## Project layout
 
 ```
 .
 ├── app/
-│   ├── layout.tsx       # Root layout
-│   ├── globals.css      # Tailwind v4 entry + AR-specific globals
-│   ├── page.tsx         # Landing page (/)
-│   └── ar/
-│       └── page.tsx     # AR page (/ar) — dynamically imports ARScene with ssr:false
+│   ├── layout.tsx                    # Root layout
+│   ├── globals.css                   # Tailwind v4 entry + AR-specific globals
+│   ├── page.tsx                      # Landing page (/)
+│   └── ar/page.tsx                   # AR page (/ar) — dynamically imports ARScene with ssr:false
 ├── components/
-│   └── ARScene.tsx      # A-Frame + MindAR client component
-├── global.d.ts          # JSX type augmentation for A-Frame custom elements
+│   ├── ARScene.tsx                   # Orchestrator (camera + scripts + overlay)
+│   └── ar/
+│       ├── ARSceneStage.tsx          # Pure JSX of <a-scene> driven by ARConfig
+│       ├── ARStatusOverlay.tsx       # Loading / ErrorPanel / close button
+│       ├── useCameraPermission.ts    # getUserMedia state machine
+│       └── useExternalScripts.ts     # A-Frame → MindAR sequential loader + 15s timeout
+├── config/
+│   ├── ar.ts                         # ARConfig types + defaultARConfig (single marker)
+│   └── ar.example-multi.ts           # Two-marker sample config
+├── lib/ar/cdn.ts                     # A-Frame / MindAR CDN URLs and pinned versions
+├── tests/
+│   ├── setup.ts                      # Vitest setup (jest-dom matchers, cleanup)
+│   └── unit/                         # Vitest unit tests
+├── e2e/                              # Playwright E2E specs
+├── docs/ARCHITECTURE.md              # Architecture deep-dive
+├── eslint.config.mjs                 # Flat ESLint config (eslint-config-next)
+├── playwright.config.ts
+├── vitest.config.ts
+├── global.d.ts                       # JSX type augmentation for A-Frame custom elements
 ├── public/
-│   ├── README.md        # Asset replacement guide
-│   ├── marker.png       # Marker image (replace it)
-│   ├── overlay.png      # Overlay image (replace it)
-│   └── targets.mind     # ★ Generate yourself — not committed
-├── LICENSE              # MIT
-└── README.md            # This file
+│   ├── README.md                     # Asset replacement guide
+│   ├── marker.png                    # Marker image (replace it)
+│   ├── overlay.png                   # Overlay image (replace it)
+│   └── targets.mind                  # ★ Generate yourself — not committed
+├── LICENSE                           # MIT
+└── README.md
 ```
 
 ## Troubleshooting
