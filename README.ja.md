@@ -104,8 +104,8 @@ pnpm dlx vercel --prod
 
 このプロジェクトは 2 層の自動テストを備えています:
 
-- **ユニットテスト** — Vitest + Testing Library + jsdom。`useCameraPermission`, `useExternalScripts` などの AR 用フックや、ステータスオーバーレイ UI、シーンの描画、`ARConfig` のスキーマ検証をカバー。`pnpm test:cov` で実行。
-- **E2E テスト** — Playwright (Chromium)。トップページと `/ar` の権限フロー(許可・拒否・HTTPS 不在)を検証します。Chromium は `--use-fake-ui-for-media-stream` で起動するため、カメラ確認ダイアログは自動許可されます。`pnpm e2e:install && pnpm e2e` で実行。
+- **ユニットテスト** — Vitest + Testing Library + jsdom。`useCameraPermission`, `useExternalScripts`, `useTargetMediaControl` などの AR 用フック、ステータスオーバーレイ UI、シーンの描画、Zod スキーマ(成功・失敗ケース)、i18n のラベル解決 (`detectLang` / `resolveLabels`)、`NEXT_PUBLIC_AR_DEBUG` による `arLog` のゲーティングを検証します。`pnpm test:cov` で実行。
+- **E2E テスト** — Playwright (Chromium、既定で `locale: 'ja-JP'` を固定)。トップページ、`/ar` の権限フロー(許可・拒否・HTTPS 不在)、ミュートトグルの描画ゲートを検証します。Chromium は `--use-fake-ui-for-media-stream` で起動するため、カメラ確認ダイアログは自動許可されます。`pnpm e2e:install && pnpm e2e` で実行。
 
 GitHub Actions が push と PR ごとにすべて自動で走らせます ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml))。
 
@@ -135,6 +135,37 @@ GitHub Actions が push と PR ごとにすべて自動で走らせます ([`.gi
 
 混在例は [`config/ar.example-multi.ts`](./config/ar.example-multi.ts) を参照してください。
 
+## ランタイム設定検証
+
+`<ARScene>` がレンダリングされた瞬間に、`ARConfig` が Zod (`config/ar.schema.ts`) で検証されます。`mindFile` の不在、`width` / `height` が非正値、`volume` が範囲外、未知の `kind`、空の `targets` / `overlays` などが見つかると、AR シーンは **起動せず**、各 issue を JSON path 付きで列挙する `'invalid-config'` エラーパネルが表示されます。これにより「設定の typo で何も表示されない」というサイレント失敗を防げます。
+
+スキーマは TypeScript 型の単一情報源でもあります。`config/ar.ts` は `z.infer` で型を再エクスポートしているため、スキーマと型がずれることはありません。
+
+## 国際化 (i18n)
+
+`<ARScene>` は任意の `lang` props を受け取ります:
+
+```tsx
+import ARScene from '@/components/ARScene';
+
+<ARScene lang="en" />            // 英語固定
+<ARScene />                       // navigator.language で自動判定(既定 ja)
+```
+
+対応言語は `'ja'`(既定)と `'en'` の 2 つです。`lang` 未指定の場合、SSR では日本語でレンダリングされ、クライアントマウント後に `detectLang()` で切り替わります — ハイドレーションミスマッチを避ける代わりに、英語ロケールでは初回 1 フレームだけ ja → en のちらつきが発生します。これを許容できない場合は `lang` を明示してください。ラベル定義は [`lib/ar/i18n.ts`](./lib/ar/i18n.ts) にあります。
+
+`useCameraPermission` が動的に組み立てるエラーメッセージ(例: 「カメラの利用が拒否されました…」)は今回のリリースでは日本語固定です。多言語化は今後の対応とします。
+
+## デバッグログ
+
+`NEXT_PUBLIC_AR_DEBUG=1` を設定すると、AR パイプラインの構造化ログが有効になります:
+
+```sh
+NEXT_PUBLIC_AR_DEBUG=1 pnpm dev:https
+```
+
+有効化すると、`useTargetMediaControl` が `targetFound` / `targetLost` / `play()` リジェクト / volume 適用 / mute トグルの 5 箇所で `console.debug('[ar]', ...)` を出力します。フラグはモジュール初期化時に 1 度だけ評価されるため、フラグを付けずにビルドした本番バンドルではロガー実装ごと tree-shake されます。詳細は [`lib/ar/debug.ts`](./lib/ar/debug.ts) を参照。
+
 ## アーキテクチャ
 
 コンポーネント分割、起動順序、`ARConfig` スキーマ、**マーカー追加レシピ** は [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) を参照してください(英語)。
@@ -149,16 +180,23 @@ GitHub Actions が push と PR ごとにすべて自動で走らせます ([`.gi
 │   ├── page.tsx                      # ランディング(/)
 │   └── ar/page.tsx                   # AR ページ(/ar)、ARScene を ssr:false で読み込む
 ├── components/
-│   ├── ARScene.tsx                   # オーケストレータ(カメラ・スクリプト・オーバーレイ)
+│   ├── ARScene.tsx                   # 外側ガード(Zod safeParse)+ ARSceneInner
 │   └── ar/
 │       ├── ARSceneStage.tsx          # ARConfig 駆動の <a-scene> JSX
-│       ├── ARStatusOverlay.tsx       # Loading / ErrorPanel / 閉じるボタン
+│       ├── ARStatusOverlay.tsx       # Loading / ErrorPanel / 閉じるボタン(i18n 対応)
+│       ├── MuteToggle.tsx            # ミュートトグル + localStorage 永続化
 │       ├── useCameraPermission.ts    # getUserMedia ステートマシン
-│       └── useExternalScripts.ts     # A-Frame → MindAR 順次ロード + 15s タイムアウト
+│       ├── useExternalScripts.ts    # A-Frame → MindAR 順次ロード + 15s タイムアウト
+│       └── useTargetMediaControl.ts # targetFound/Lost ハンドラ(Map キャッシュ済み)
 ├── config/
-│   ├── ar.ts                         # 型 + 既定の単一マーカー設定
+│   ├── ar.schema.ts                  # Zod スキーマ — ランタイム検証の単一情報源
+│   ├── ar.ts                         # z.infer 由来の型 + 既定の単一マーカー設定
 │   └── ar.example-multi.ts           # 2 マーカーのサンプル設定
-├── lib/ar/cdn.ts                     # CDN URL とバージョン定数
+├── lib/ar/
+│   ├── cdn.ts                        # CDN URL とバージョン定数
+│   ├── overlay.ts                    # アセット ID ヘルパー + メディア収集ユーティリティ
+│   ├── i18n.ts                       # ja/en ラベル + detectLang / resolveLabels
+│   └── debug.ts                      # arLog() — NEXT_PUBLIC_AR_DEBUG=1 でゲート
 ├── tests/
 │   ├── setup.ts                      # Vitest 用セットアップ
 │   └── unit/                         # Vitest ユニットテスト
