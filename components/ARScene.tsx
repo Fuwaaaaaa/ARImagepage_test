@@ -7,6 +7,11 @@ import { arConfigSchema } from '@/config/ar.schema';
 import { AFRAME_SRC, MINDAR_SRC } from '@/lib/ar/cdn';
 import { detectLang, resolveLabels, type ARLang } from '@/lib/ar/i18n';
 import { hasMediaOverlay } from '@/lib/ar/overlay';
+import {
+  readSimModeFromLocation,
+  warnSimActiveOnce,
+  type ARSimMode,
+} from '@/lib/ar/simulation';
 import { ARSceneStage } from './ar/ARSceneStage';
 import {
   ARCloseButton,
@@ -16,8 +21,10 @@ import {
   type InvalidConfigIssue,
 } from './ar/ARStatusOverlay';
 import { MuteToggle, useMuteToggleState } from './ar/MuteToggle';
+import { SimulationPanel } from './ar/SimulationPanel';
 import { useCameraPermission } from './ar/useCameraPermission';
 import { useExternalScripts } from './ar/useExternalScripts';
+import { useSimulation } from './ar/useSimulation';
 import { useTargetMediaControl } from './ar/useTargetMediaControl';
 
 export type ARSceneProps = {
@@ -81,17 +88,36 @@ function ARSceneInner({ config, lang }: { config: ARConfig; lang?: ARLang }) {
 
   const labels = resolveLabels(resolvedLang);
 
-  const { permission, errorName, errorDetail } = useCameraPermission();
+  // Read simulation mode once at mount. ARScene is loaded via
+  // `dynamic({ ssr: false })` from `app/ar/page.tsx`, so there is no SSR pass
+  // here — a lazy `useState` initializer is safe and avoids the
+  // post-mount re-render that the `lang` prop needs.
+  const [simMode] = useState<ARSimMode>(() => readSimModeFromLocation());
+  useEffect(() => {
+    warnSimActiveOnce(simMode);
+  }, [simMode]);
+
+  const realPermission = useCameraPermission();
+  const permission = simMode.bypassPermission ? 'granted' : realPermission.permission;
+  const errorName = simMode.bypassPermission ? undefined : realPermission.errorName;
+  const errorDetail = simMode.bypassPermission ? undefined : realPermission.errorDetail;
   const canLoadScripts = permission === 'granted';
+  // The hook still runs unconditionally to honor the Rules of Hooks; its
+  // `canLoad` argument is gated on the real-permission path so we don't burn
+  // a fetch when sim mode is the only thing pretending to be granted.
+  const scriptsCanLoad = canLoadScripts && !simMode.bypassScripts;
 
   const {
     aframeLoaded,
     mindarLoaded,
-    ready,
-    timedOut,
+    ready: realReady,
+    timedOut: realTimedOut,
     notifyAframeLoaded,
     notifyMindarLoaded,
-  } = useExternalScripts(canLoadScripts);
+  } = useExternalScripts(scriptsCanLoad);
+
+  const ready = simMode.bypassScripts ? true : realReady;
+  const timedOut = simMode.bypassScripts ? false : realTimedOut;
 
   const sceneContainerRef = useRef<HTMLDivElement>(null);
   const [muted, setMuted] = useMuteToggleState(true);
@@ -104,6 +130,13 @@ function ARSceneInner({ config, lang }: { config: ARConfig; lang?: ARLang }) {
     config,
     enabled: sceneActive,
     muted,
+  });
+
+  const sim = useSimulation({
+    containerRef: sceneContainerRef,
+    targets: config.targets,
+    simMode,
+    sceneReady: sceneActive,
   });
 
   useEffect(() => {
@@ -151,7 +184,7 @@ function ARSceneInner({ config, lang }: { config: ARConfig; lang?: ARLang }) {
 
   return (
     <div className="fixed inset-0 bg-black text-white">
-      {canLoadScripts && (
+      {scriptsCanLoad && (
         <Script
           src={AFRAME_SRC}
           strategy="afterInteractive"
@@ -159,7 +192,7 @@ function ARSceneInner({ config, lang }: { config: ARConfig; lang?: ARLang }) {
           onReady={notifyAframeLoaded}
         />
       )}
-      {canLoadScripts && aframeLoaded && (
+      {scriptsCanLoad && aframeLoaded && (
         <Script
           src={MINDAR_SRC}
           strategy="afterInteractive"
@@ -197,6 +230,16 @@ function ARSceneInner({ config, lang }: { config: ARConfig; lang?: ARLang }) {
 
       {showMuteToggle && (
         <MuteToggle muted={muted} onChange={setMuted} lang={resolvedLang} />
+      )}
+
+      {simMode.enabled && sceneActive && (
+        <SimulationPanel
+          targets={config.targets}
+          onFireFound={sim.fireFound}
+          onFireLost={sim.fireLost}
+          onFireAllFound={sim.fireAllFound}
+          onFireAllLost={sim.fireAllLost}
+        />
       )}
     </div>
   );
