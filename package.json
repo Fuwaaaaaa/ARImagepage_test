@@ -23,7 +23,8 @@
     "e2e:install": "playwright install chromium",
     "e2e:no-visual": "playwright test --grep-invert \"Visual regression\"",
     "e2e:visual": "playwright test e2e/visual.spec.ts --workers=1",
-    "e2e:visual:update": "playwright test e2e/visual.spec.ts --workers=1 --update-snapshots"
+    "e2e:visual:update": "playwright test e2e/visual.spec.ts --workers=1 --update-snapshots",
+    "e2e:a11y": "playwright test e2e/a11y.spec.ts"
   },
   "dependencies": {
     "next": "^15.5.0",
@@ -32,6 +33,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4.0.0",
     "@testing-library/dom": "^10.4.1",

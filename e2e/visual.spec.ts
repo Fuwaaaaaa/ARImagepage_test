@@ -44,9 +44,13 @@ test.describe('Visual regression', () => {
     });
 
     await page.goto('/ar');
-    // Match the per-assertion timeout used by ar-denied.spec.ts — the dev
-    // server can be slow on cold start and the default 5s window flakes.
-    await expect(page.getByRole('alert')).toBeVisible({ timeout: 10_000 });
+    // Use the H2 inside the ErrorPanel — `getByRole('alert')` would also
+    // match Next.js' `__next-route-announcer__` and trip strict mode under
+    // unlucky navigation timing. The dev server can also be slow on cold
+    // start, so keep the 10s timeout from ar-denied.spec.ts.
+    await expect(
+      page.getByRole('heading', { level: 2, name: /許可されていません/ }),
+    ).toBeVisible({ timeout: 10_000 });
     await expect(page).toHaveScreenshot('ar-denied.png');
   });
 
@@ -59,7 +63,9 @@ test.describe('Visual regression', () => {
     });
 
     await page.goto('/ar');
-    await expect(page.getByRole('alert')).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByRole('heading', { level: 2, name: /HTTPS/ }),
+    ).toBeVisible({ timeout: 10_000 });
     await expect(page).toHaveScreenshot('ar-no-https.png');
   });
 

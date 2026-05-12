@@ -69,14 +69,14 @@ export default function Home() {
 
         <Link
           href="/ar"
-          className="inline-flex items-center justify-center rounded-full bg-sky-500 px-10 py-4 text-lg font-semibold text-white shadow-lg shadow-sky-500/30 transition hover:bg-sky-400 active:scale-95"
+          className="inline-flex items-center justify-center rounded-full bg-sky-700 px-10 py-4 text-lg font-semibold text-white shadow-lg shadow-sky-700/40 transition hover:bg-sky-600 active:scale-95"
         >
           {labels.startCta}
         </Link>
 
-        <p className="text-center text-xs text-slate-500">
+        <p className="text-center text-xs text-slate-400">
           {labels.httpsNoteBefore}
-          <code className="mx-1 rounded bg-slate-800 px-1 py-0.5">
+          <code className="mx-1 rounded bg-slate-800 px-1 py-0.5 text-sky-200">
             {labels.httpsNoteCode}
           </code>
           {labels.httpsNoteAfter}
