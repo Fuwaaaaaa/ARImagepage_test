@@ -64,6 +64,31 @@ export type ARLabels = {
     muteAriaLabel: string;
     unmuteAriaLabel: string;
   };
+  /**
+   * Landing-page copy. Mirrors the AR shell i18n style so the home route can
+   * follow the same SSR-ja → client-detect pattern documented for `<ARScene>`.
+   *
+   * `httpsNoteCode` is the inline code fragment (`pnpm dev:https`) injected
+   * between the `httpsNoteBefore` and `httpsNoteAfter` prose so we never put
+   * raw markup in the label table.
+   */
+  landing: {
+    eyebrow: string;
+    title: string;
+    subtitle: string;
+    markerHeading: string;
+    markerBody: string;
+    markerImageAlt: string;
+    steps: {
+      permission: { title: string; body: string };
+      hold: { title: string; body: string };
+      view: { title: string; body: string };
+    };
+    startCta: string;
+    httpsNoteBefore: string;
+    httpsNoteCode: string;
+    httpsNoteAfter: string;
+  };
 };
 
 export const defaultARLabels: Record<ARLang, ARLabels> = {
@@ -111,6 +136,25 @@ export const defaultARLabels: Record<ARLang, ARLabels> = {
       muteAriaLabel: 'ミュートにする',
       unmuteAriaLabel: 'ミュートを解除',
     },
+    landing: {
+      eyebrow: 'Image Tracking AR Demo',
+      title: '画像認識 AR デモ',
+      subtitle:
+        'マーカー画像をかざすと、AR でオーバーレイ画像が表示されます',
+      markerHeading: 'マーカー画像(これをかざしてください)',
+      markerBody:
+        '印刷するか、別の画面にこの画像を表示してカメラに向けてください。',
+      markerImageAlt: 'AR マーカー画像',
+      steps: {
+        permission: { title: '許可', body: 'カメラの利用を許可します' },
+        hold: { title: 'かざす', body: 'マーカー画像をカメラに向けます' },
+        view: { title: '表示', body: 'AR オーバーレイが表示されます' },
+      },
+      startCta: 'ARを開始',
+      httpsNoteBefore: '※ カメラ利用には HTTPS 接続が必要です。ローカル開発時は',
+      httpsNoteCode: 'pnpm dev:https',
+      httpsNoteAfter: 'を使ってください。',
+    },
   },
   en: {
     loading: {
@@ -155,6 +199,29 @@ export const defaultARLabels: Record<ARLang, ARLabels> = {
     mute: {
       muteAriaLabel: 'Mute',
       unmuteAriaLabel: 'Unmute',
+    },
+    landing: {
+      eyebrow: 'Image Tracking AR Demo',
+      title: 'Image-Recognition AR Demo',
+      subtitle:
+        'Hold up the marker image to see the AR overlay appear on top of it.',
+      markerHeading: 'Marker image (hold this up)',
+      markerBody:
+        'Print this out or display it on another screen, then point your camera at it.',
+      markerImageAlt: 'AR marker image',
+      steps: {
+        permission: {
+          title: 'Allow',
+          body: 'Grant camera access when prompted',
+        },
+        hold: { title: 'Hold up', body: 'Point your camera at the marker' },
+        view: { title: 'View', body: 'The AR overlay appears on top of it' },
+      },
+      startCta: 'Start AR',
+      httpsNoteBefore:
+        'Camera access requires an HTTPS connection. For local development, use',
+      httpsNoteCode: 'pnpm dev:https',
+      httpsNoteAfter: '.',
     },
   },
 };
