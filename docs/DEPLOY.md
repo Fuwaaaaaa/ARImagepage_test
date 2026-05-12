@@ -48,38 +48,53 @@ not want production users' devtools spammed with debug logs.
 
 ## Cache headers
 
-The `.mind` feature-descriptor file is content-addressed (re-compiling
-the same marker produces the same bytes), so it's safe to cache hard.
-When a `vercel.json` lands, it should set:
-
-```json
-{
-  "headers": [
-    {
-      "source": "/targets.mind",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
-      ]
-    }
-  ]
-}
-```
-
-Until then the file is served with Next.js's default static-asset headers
-(`public, max-age=0`), which is correct but suboptimal for the few
-hundred KB binary.
+[`vercel.json`](../vercel.json) marks `/targets.mind` and the static
+`marker.png` / `overlay.png` placeholders as immutable so Vercel's edge
+serves them with year-long cache lifetimes. The `.mind` binary is
+content-addressed (re-compiling the same marker produces the same bytes)
+so the immutable cache is safe; if you generate a new descriptor for a
+different marker, drop the file under a new path (e.g.
+`/targets-v2.mind`) and bump `mindFile` in your `ARConfig` rather than
+overwriting the cached resource.
 
 ## Testing on a real phone
 
-`localhost` isn't reachable from a phone — use the deployed URL instead:
+`localhost` isn't reachable from a phone. Use the Vercel preview URL —
+once the GitHub integration is connected, every PR gets one
+automatically.
 
-1. Take the Vercel preview / production URL.
-2. Generate a QR code from it (e.g. <https://www.qr-code-generator.com/>).
-3. Scan with the phone's camera.
+To save reviewers the copy-paste step,
+[`.github/workflows/preview-qr.yml`](../.github/workflows/preview-qr.yml)
+listens for Vercel's `deployment_status` events and posts (or updates) a
+single PR comment containing:
 
-A future iteration of CI (workstream W6 in the project plan) will post a
-QR image directly to each PR so reviewers can scan-to-test without
-copy-pasting the URL.
+- the preview URL as a markdown link
+- an inline QR image rendered by `api.qrserver.com`
+- a one-click `/ar?sim=1` shortcut for verifying the overlay pipeline
+  without a marker
+
+The workflow uses the default `GITHUB_TOKEN` — no Vercel secret needed.
+Because the comment is marked with `<!-- preview-qr -->`, the workflow
+edits the existing comment in place on every redeploy instead of stacking
+new ones.
+
+### Disabling the QR comment
+
+If you don't want the comment (e.g. a private fork), delete or rename
+`.github/workflows/preview-qr.yml`. The functional CI workflow
+(`.github/workflows/ci.yml`) is independent.
+
+### When the workflow stays silent
+
+- Vercel is not connected to the repository → no `deployment_status`
+  events fire.
+- The deployment is not from `*.vercel.app` (custom domain on the
+  default branch) → filtered out by the `if:` guard. Production deploys
+  on the default branch typically don't need a QR comment because they
+  don't land on a PR.
+- The deployment SHA isn't associated with any PR (e.g. a direct push to
+  `main`) → the workflow logs `No PR is associated with <sha>` and
+  exits without commenting.
 
 ## Custom domain
 
