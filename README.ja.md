@@ -49,6 +49,24 @@ pnpm dev:https
 
 詳細は [`public/README.md`](./public/README.md) を参照してください。
 
+## 実機なしで試す — シミュレーションモード
+
+カメラ・マーカー・`targets.mind` のいずれも無しで、image / video / audio
+オーバーレイの動作を一通り確認できます。`/ar` に URL クエリを付けるだけ。
+
+| URL | 動作 |
+|---|---|
+| `/ar?sim=1` | 権限プローブと A-Frame/MindAR スクリプトロードを両方バイパス。シーンを即マウントし、画面左にデバッグパネル(target ごとの `found` / `lost` ボタン)を表示。 |
+| `/ar?sim=1&found=primary` | 上に加えて、マウント直後に `primary` エンティティへ `targetFound` を発火。 |
+| `/ar?sim=1&found=primary,secondary&delay=500` | 複数 target を 500 ms 後にまとめて発火。 |
+| `/ar?sim=1&bypass=permission` | 権限プローブのみバイパス。A-Frame/MindAR は通常通りロード(`targets.mind` がある状態で「本物の」エンジンを確認したい時用)。 |
+| `/ar?sim=1&bypass=scripts` | スクリプトのみバイパス。実際の権限プローブは走る。 |
+
+本番ビルドでも有効です — 起動時に `console.warn` が 1 回だけ出るので、
+DevTools を見ればモードに気づけます。クエリのパーサは
+[`lib/ar/simulation.ts`](./lib/ar/simulation.ts)、UI は
+[`components/ar/SimulationPanel.tsx`](./components/ar/SimulationPanel.tsx)。
+
 ## 動作確認の流れ
 
 1. `https://localhost:3000` にアクセス
@@ -99,15 +117,43 @@ pnpm dlx vercel --prod
 | `pnpm e2e` | Playwright E2E テスト(Chromium のみ) |
 | `pnpm e2e:ui` | Playwright を UI モードで実行 |
 | `pnpm e2e:install` | Playwright Chromium バイナリのダウンロード |
+| `pnpm e2e:no-visual` | ビジュアル回帰以外の E2E を実行(CI 用) |
+| `pnpm e2e:visual` | ビジュアル回帰スペックのみ実行(worker=1) |
+| `pnpm e2e:visual:update` | ビジュアル回帰のベースライン再生成 |
+| `pnpm e2e:a11y` | axe-core によるアクセシビリティ監査のみ |
+| `pnpm build:check` | ビルドして First Load JS 予算を検証 |
 
 ## テスト
 
-このプロジェクトは 2 層の自動テストを備えています:
+このプロジェクトは 4 層の自動テスト + ビルド時のバンドル予算 + 本番スモークを
+備えています。
 
-- **ユニットテスト** — Vitest + Testing Library + jsdom。`useCameraPermission`, `useExternalScripts`, `useTargetMediaControl` などの AR 用フック、ステータスオーバーレイ UI、シーンの描画、Zod スキーマ(成功・失敗ケース)、i18n のラベル解決 (`detectLang` / `resolveLabels`)、`NEXT_PUBLIC_AR_DEBUG` による `arLog` のゲーティングを検証します。`pnpm test:cov` で実行。
-- **E2E テスト** — Playwright (Chromium、既定で `locale: 'ja-JP'` を固定)。トップページ、`/ar` の権限フロー(許可・拒否・HTTPS 不在)、ミュートトグルの描画ゲートを検証します。Chromium は `--use-fake-ui-for-media-stream` で起動するため、カメラ確認ダイアログは自動許可されます。`pnpm e2e:install && pnpm e2e` で実行。
+- **ユニットテスト** — Vitest + Testing Library + jsdom。AR フック
+  (`useCameraPermission`, `useExternalScripts`, `useTargetMediaControl`,
+  `useSimulation`)、ステータスオーバーレイ UI、シーン描画、Zod スキーマ
+  (成功・失敗)、i18n ラベル解決 (`detectLang` / `resolveLabels`)、
+  シミュレーション URL パース、ランディングの言語切替、
+  `NEXT_PUBLIC_AR_DEBUG` のゲーティングを検証。`pnpm test:cov` で実行。
+- **機能 E2E** — Playwright (Chromium、既定で `locale: 'ja-JP'`)。トップ
+  ページ (ja/en)、`/ar` の権限フロー(許可・拒否・HTTPS 不在)、ミュート
+  トグルの描画ゲートを検証。Chromium は
+  `--use-fake-ui-for-media-stream` 付きで起動するため、カメラ許可
+  ダイアログは自動許可されます。`pnpm e2e:install && pnpm e2e`。
+- **ビジュアル回帰** — Playwright の `toHaveScreenshot` で landing
+  (ja/en) / denied / no-https / invalid-config / sim panel の baseline を
+  保持。アニメーション無効・viewport 固定・diff 許容 2 %。ベースラインは
+  プラットフォーム別 (`-chromium-win32.png` 等) なので、UI 変更時は
+  `pnpm e2e:visual:update` で再生成してください。
+- **アクセシビリティ** — `@axe-core/playwright` で WCAG 2.0 / 2.1 A + AA を
+  実機なしで到達可能な全 UI 状態に対して実行。`pnpm e2e:a11y` で単独実行。
 
-GitHub Actions が push と PR ごとにすべて自動で走らせます ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml))。
+CI の `production-smoke` ジョブはビルド後に First Load JS 予算
+(`/`: 200 kB、`/ar`: 180 kB) を検証し、`next start` を起動して
+`/`、`/ar`、`/ar?sim=1` の HTML マーカーを curl で確認します。dynamic
+import の配線ミスや locale フォールバック退化を本番デプロイ前に検出します。
+
+詳細は [`docs/TESTING.md`](./docs/TESTING.md) と
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) を参照。
 
 ## オーバーレイ — 画像・動画・音声
 
@@ -154,6 +200,11 @@ import ARScene from '@/components/ARScene';
 
 対応言語は `'ja'`(既定)と `'en'` の 2 つです。`lang` 未指定の場合、SSR では日本語でレンダリングされ、クライアントマウント後に `detectLang()` で切り替わります — ハイドレーションミスマッチを避ける代わりに、英語ロケールでは初回 1 フレームだけ ja → en のちらつきが発生します。これを許容できない場合は `lang` を明示してください。ラベル定義は [`lib/ar/i18n.ts`](./lib/ar/i18n.ts) にあります。
 
+**ランディングページ** (`app/page.tsx`) も同じパターンで i18n 対応済みです。
+hero / マーカー説明 / 各ステップラベル / HTTPS 注記まで、すべて
+`defaultARLabels.landing` から解決します。3 言語目を追加するならラベル表に
+1 つ追加するだけ — コンポーネント側の修正は不要です。
+
 カメラ権限エラーの動的メッセージも同じラベル表から解決されます。`useCameraPermission` は構造化された状態のみを返し、最終的な文言は `<ARSceneInner>` がアクティブなロケールから組み立てます。
 
 ## デバッグログ
@@ -177,16 +228,19 @@ NEXT_PUBLIC_AR_DEBUG=1 pnpm dev:https
 ├── app/
 │   ├── layout.tsx                    # ルートレイアウト
 │   ├── globals.css                   # Tailwind v4 + AR 用のグローバル CSS
-│   ├── page.tsx                      # ランディング(/)
-│   └── ar/page.tsx                   # AR ページ(/ar)、ARScene を ssr:false で読み込む
+│   ├── page.tsx                      # ランディング(/、ja/en 自動切替)
+│   ├── ar/page.tsx                   # AR ページ(/ar)、ARScene を ssr:false で読み込む
+│   └── ar-invalid/page.tsx           # 無効 config をマウントするテスト専用ルート
 ├── components/
 │   ├── ARScene.tsx                   # 外側ガード(Zod safeParse)+ ARSceneInner
 │   └── ar/
 │       ├── ARSceneStage.tsx          # ARConfig 駆動の <a-scene> JSX
 │       ├── ARStatusOverlay.tsx       # Loading / ErrorPanel / 閉じるボタン(i18n 対応)
 │       ├── MuteToggle.tsx            # ミュートトグル + localStorage 永続化
+│       ├── SimulationPanel.tsx       # ?sim=1 時のみ表示されるデバッグパネル
 │       ├── useCameraPermission.ts    # getUserMedia ステートマシン
 │       ├── useExternalScripts.ts    # A-Frame → MindAR 順次ロード + 15s タイムアウト
+│       ├── useSimulation.ts          # シミュレーション用 targetFound/Lost ディスパッチ
 │       └── useTargetMediaControl.ts # targetFound/Lost ハンドラ(Map キャッシュ済み)
 ├── config/
 │   ├── ar.schema.ts                  # Zod スキーマ — ランタイム検証の単一情報源
@@ -196,12 +250,18 @@ NEXT_PUBLIC_AR_DEBUG=1 pnpm dev:https
 │   ├── cdn.ts                        # CDN URL とバージョン定数
 │   ├── overlay.ts                    # アセット ID ヘルパー + メディア収集ユーティリティ
 │   ├── i18n.ts                       # ja/en ラベル + detectLang / resolveLabels
+│   ├── simulation.ts                 # ?sim=1 等のクエリパーサ
 │   └── debug.ts                      # arLog() — NEXT_PUBLIC_AR_DEBUG=1 でゲート
 ├── tests/
 │   ├── setup.ts                      # Vitest 用セットアップ
 │   └── unit/                         # Vitest ユニットテスト
-├── e2e/                              # Playwright E2E テスト
-├── docs/ARCHITECTURE.md              # アーキテクチャ詳細
+├── e2e/                              # Playwright E2E (機能 + ビジュアル + a11y)
+├── scripts/
+│   └── check-bundle-size.mjs         # CI バンドル予算ゲート
+├── docs/
+│   ├── ARCHITECTURE.md               # アーキテクチャ詳細
+│   ├── TESTING.md                    # 4 層テスト戦略
+│   └── DEPLOY.md                     # Vercel デプロイ手順
 ├── eslint.config.mjs                 # ESLint Flat config
 ├── playwright.config.ts
 ├── vitest.config.ts
@@ -220,7 +280,7 @@ NEXT_PUBLIC_AR_DEBUG=1 pnpm dev:https
 |---|---|
 | 「HTTPS 接続が必要です」と表示される | HTTP でアクセスしている。`pnpm dev:https` で起動して HTTPS で開く |
 | カメラ許可ダイアログが出ない | ブラウザのサイト設定でカメラがブロックされている。設定を解除して再読み込み |
-| `/ar` が黒画面のまま | `public/targets.mind` が無い、または破損。MindAR Compiler で再生成 |
+| `/ar` が黒画面のまま | `public/targets.mind` が無い、または破損。MindAR Compiler で再生成 — もしくは `?sim=1` でオーバーレイパイプラインだけ実機なし検証 |
 | マーカーをかざしても overlay が出ない | マーカー画像と `targets.mind` の元画像が違う、または特徴点不足。コントラストが強い画像で再コンパイル |
 | 開発中にリロードすると `customElements` エラー | A-Frame の二重登録。ページ全体をリロードすれば解消 |
 | iOS Safari で動かない | iOS は HTTPS 必須かつ "リアカメラ" 利用にユーザー操作が必要。「ARを開始」ボタンを押した直後でないと許可されない |
