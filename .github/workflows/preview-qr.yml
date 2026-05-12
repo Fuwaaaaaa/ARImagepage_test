@@ -1,0 +1,92 @@
+name: Preview QR
+
+# Fired whenever Vercel (or any other GitHub App with deployment perms)
+# updates a deployment for this repo. We post / update a single PR comment
+# carrying the preview URL plus an inline QR image so reviewers can scan it
+# from a phone without copy-pasting.
+on:
+  deployment_status:
+
+# `deployment_status.state` is the public state — Vercel emits `success` once
+# the preview build is ready. Skip every other state (`pending`, `failure`,
+# `inactive`, `error`, `queued`, `in_progress`) so we don't churn the
+# comment.
+#
+# We also gate on Vercel-shaped URLs (*.vercel.app) so the workflow stays a
+# no-op for any other deployment provider that might be wired up later.
+jobs:
+  comment:
+    if: |
+      github.event.deployment_status.state == 'success' &&
+      contains(github.event.deployment_status.target_url, '.vercel.app')
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Find the PR for this deployment SHA and upsert QR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.deployment.sha;
+            const url = context.payload.deployment_status.target_url;
+
+            const { data: prs } =
+              await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: sha,
+              });
+            if (prs.length === 0) {
+              core.info(`No PR is associated with ${sha} — skipping.`);
+              return;
+            }
+            const prNumber = prs[0].number;
+
+            // Public QR generator. We're handing it the preview URL only;
+            // that URL is already discoverable by anyone with access to the
+            // PR comments, so no additional disclosure risk.
+            const qrSrc =
+              `https://api.qrserver.com/v1/create-qr-code/` +
+              `?size=220x220&margin=8&data=${encodeURIComponent(url)}`;
+
+            const marker = '<!-- preview-qr -->';
+            const body = [
+              marker,
+              '',
+              `### 📱 Preview deploy`,
+              '',
+              `**URL**: ${url}`,
+              '',
+              `<a href="${url}"><img src="${qrSrc}" width="220" height="220" alt="QR code for the preview URL"></a>`,
+              '',
+              `Scan with a phone camera, or try [${url}/ar?sim=1](${url}/ar?sim=1) to verify the overlay pipeline without a marker.`,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              per_page: 100,
+            });
+            const existing = comments.find((c) =>
+              typeof c.body === 'string' && c.body.includes(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+              core.info(`Updated existing comment ${existing.id} on PR #${prNumber}.`);
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+              core.info(`Created new comment on PR #${prNumber}.`);
+            }

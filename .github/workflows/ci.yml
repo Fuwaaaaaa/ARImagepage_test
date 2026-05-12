@@ -48,6 +48,64 @@ jobs:
           path: coverage
           retention-days: 7
 
+  production-smoke:
+    name: Production build smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build + bundle-size budget check
+        # `next build | tee build.log` keeps the table visible in the job log
+        # while the check script consumes the same stream from stdin. Pipes
+        # mask non-zero exit codes by default — `set -o pipefail` ensures a
+        # failed build still fails the step.
+        run: |
+          set -o pipefail
+          pnpm exec next build | node scripts/check-bundle-size.mjs
+
+      - name: Start production server
+        run: |
+          pnpm start &
+          echo "PROD_PID=$!" >> "$GITHUB_ENV"
+          # Poll until /, /ar, and /ar?sim=1 all return 2xx, up to 60s.
+          for path in "/" "/ar" "/ar?sim=1"; do
+            for i in $(seq 1 30); do
+              if curl -fsS "http://localhost:3000${path}" -o /dev/null; then
+                echo "ready: ${path}"
+                break
+              fi
+              sleep 2
+              if [ "$i" = "30" ]; then
+                echo "timeout: ${path}" >&2
+                exit 1
+              fi
+            done
+          done
+
+      - name: Curl /, /ar, /ar?sim=1 — assert key markers in HTML
+        # `grep -qF` runs silently (the HTML is multi-kB on one line, so the
+        # default printing behavior floods the job log). Exit code 0 ↔ match.
+        run: |
+          curl -fsS http://localhost:3000/        | grep -qF '画像認識 AR デモ'
+          curl -fsS http://localhost:3000/ar      | grep -qF 'Loading AR'
+          curl -fsS 'http://localhost:3000/ar?sim=1' | grep -qF 'Loading AR'
+
+      - name: Stop production server
+        if: always()
+        run: kill ${PROD_PID} || true
+
   e2e:
     name: Playwright E2E
     runs-on: ubuntu-latest
@@ -86,8 +144,12 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: pnpm exec playwright install-deps chromium
 
-      - name: Run E2E tests
-        run: pnpm e2e
+      - name: Run E2E tests (functional, no visual regression)
+        # Visual regression snapshots are platform-suffixed (`-chromium-linux.png`
+        # vs `-win32.png`); local-Windows baselines are committed for the
+        # contributor workflow, while Linux baselines are produced on demand
+        # via the separate `e2e-visual` workflow once it is set up.
+        run: pnpm e2e:no-visual
 
       - name: Upload Playwright report
         if: always()

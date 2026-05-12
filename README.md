@@ -48,6 +48,26 @@ Then open **`https://localhost:3000`**. You'll see a self-signed certificate war
 
 See [`public/README.md`](./public/README.md) for full asset replacement details.
 
+## Try it without a real device — simulation mode
+
+You can verify the entire overlay pipeline — image, video, and audio — without a
+camera, a marker, or even a compiled `targets.mind` file by appending a URL
+query to `/ar`.
+
+| URL | What happens |
+|---|---|
+| `/ar?sim=1` | Bypass camera permission + A-Frame/MindAR script load. Mounts the scene immediately, exposes a floating debug panel with `found` / `lost` buttons per target. |
+| `/ar?sim=1&found=primary` | Same as above, plus dispatches `targetFound` on the `primary` entity once it mounts. |
+| `/ar?sim=1&found=primary,secondary&delay=500` | Multiple targets, fired 500 ms after mount. |
+| `/ar?sim=1&bypass=permission` | Skip only the permission probe — A-Frame and MindAR still load normally (useful when `public/targets.mind` exists and you want to verify the real engine). |
+| `/ar?sim=1&bypass=scripts` | Skip only the script load — the real permission probe still runs. |
+
+Simulation mode is **always available**, including in production builds — a
+one-shot `console.warn` is emitted whenever it's active so the state is
+obvious from devtools. The query surface is parsed by
+[`lib/ar/simulation.ts`](./lib/ar/simulation.ts) and the controls live in
+[`components/ar/SimulationPanel.tsx`](./components/ar/SimulationPanel.tsx).
+
 ## Usage
 
 1. Open `https://localhost:3000`
@@ -95,15 +115,46 @@ Or import the GitHub repository in the Vercel dashboard — every push to `main`
 | `pnpm e2e` | Run Playwright E2E tests (Chromium only) |
 | `pnpm e2e:ui` | Run Playwright in UI mode |
 | `pnpm e2e:install` | Download Playwright Chromium binary |
+| `pnpm e2e:no-visual` | Run E2E except the visual regression specs (used in CI) |
+| `pnpm e2e:visual` | Run only the visual regression specs (single worker) |
+| `pnpm e2e:visual:update` | Re-generate the visual regression baselines |
+| `pnpm e2e:a11y` | Run only the axe-core accessibility audit |
+| `pnpm build:check` | Build and assert per-route First Load JS budgets |
 
 ## Tests
 
-This project ships with two layers of automated tests:
+This project ships with four layers of automated tests, plus a build-time
+bundle-size budget and a production smoke test in CI.
 
-- **Unit tests** — Vitest + Testing Library + jsdom. Cover the AR hooks (`useCameraPermission`, `useExternalScripts`, `useTargetMediaControl`), the status overlay UI, the scene stage rendering, the Zod schema (both happy-path and failure cases), the i18n label resolver (`detectLang` / `resolveLabels`), and the `NEXT_PUBLIC_AR_DEBUG` gating in `arLog`. Run with `pnpm test:cov`.
-- **E2E tests** — Playwright (Chromium, `locale: 'ja-JP'` by default). Verify the landing page and the `/ar` permission flows (granted, denied, no-https) plus the mute-toggle render gate. Chromium is launched with `--use-fake-ui-for-media-stream` so camera prompts auto-resolve. Run with `pnpm e2e:install && pnpm e2e`.
+- **Unit** — Vitest + Testing Library + jsdom. Covers the AR hooks
+  (`useCameraPermission`, `useExternalScripts`, `useTargetMediaControl`,
+  `useSimulation`), the status overlay UI, the scene stage rendering, the
+  Zod schema (happy-path and failure cases), the i18n label resolver
+  (`detectLang` / `resolveLabels`), simulation URL parsing, the landing
+  page's locale switch, and the `NEXT_PUBLIC_AR_DEBUG` gating in `arLog`.
+  Run with `pnpm test:cov`.
+- **Functional E2E** — Playwright (Chromium, `locale: 'ja-JP'` by default).
+  Verifies the landing page (ja/en), `/ar` permission flows (granted,
+  denied, no-https), and the mute-toggle render gate. Chromium is launched
+  with `--use-fake-ui-for-media-stream` so camera prompts auto-resolve.
+  Run with `pnpm e2e:install && pnpm e2e`.
+- **Visual regression** — Playwright `toHaveScreenshot` baselines for
+  landing (ja, en), denied, no-https, invalid-config, and the sim-mode
+  panel. Animations disabled, viewport pinned, 2 % diff tolerance. Baselines
+  are platform-suffixed (`-chromium-win32.png` etc.) so multiple platforms
+  can coexist — re-generate with `pnpm e2e:visual:update` after intentional
+  UI changes.
+- **Accessibility** — `@axe-core/playwright` sweeps WCAG 2.0 / 2.1 A + AA
+  over every UI state reachable without a real device. Run alone with
+  `pnpm e2e:a11y`.
 
-GitHub Actions runs all of the above on every push and PR — see [`.github/workflows/ci.yml`](./.github/workflows/ci.yml).
+In CI the `production-smoke` job builds the app, asserts per-route First
+Load JS budgets (`/`: 200 kB, `/ar`: 180 kB), boots `next start`, and curls
+`/`, `/ar`, and `/ar?sim=1` for their content markers — catching dynamic-
+import wiring bugs and locale-fallback regressions before deploy.
+
+See [`docs/TESTING.md`](./docs/TESTING.md) for the full strategy and
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) for the CI wiring.
 
 ## Overlays — image, video, audio
 
@@ -150,6 +201,12 @@ import ARScene from '@/components/ARScene';
 
 The supported languages are `'ja'` (default) and `'en'`. When `lang` is omitted, the component renders Japanese on the server and switches to the detected client language post-mount — accepting a one-frame flicker in exchange for hydration safety. To skip the flicker, pass `lang` explicitly. The label tables live in [`lib/ar/i18n.ts`](./lib/ar/i18n.ts).
 
+The **landing page** (`app/page.tsx`) follows the same pattern: it renders
+Japanese on the server and switches to the detected client language after
+mount. All hero copy, step labels, and the HTTPS note resolve through the
+same `landing` section of `defaultARLabels`, so adding a third language
+means filling out one table — no component edits.
+
 All error messages — including the dynamic ones for camera permission failures — are sourced from the same label table. `useCameraPermission` returns structured state only, and `<ARSceneInner>` composes the final user-facing message from the active locale.
 
 ## Debug logging
@@ -173,16 +230,19 @@ See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the component split, bo
 ├── app/
 │   ├── layout.tsx                    # Root layout
 │   ├── globals.css                   # Tailwind v4 entry + AR-specific globals
-│   ├── page.tsx                      # Landing page (/)
-│   └── ar/page.tsx                   # AR page (/ar) — dynamically imports ARScene with ssr:false
+│   ├── page.tsx                      # Landing page (/) — i18n (ja/en)
+│   ├── ar/page.tsx                   # AR page (/ar) — dynamically imports ARScene with ssr:false
+│   └── ar-invalid/page.tsx           # Test harness route mounting <ARScene> with a broken config
 ├── components/
 │   ├── ARScene.tsx                   # Outer guard (Zod safeParse) + ARSceneInner
 │   └── ar/
 │       ├── ARSceneStage.tsx          # Pure JSX of <a-scene> driven by ARConfig
 │       ├── ARStatusOverlay.tsx       # Loading / ErrorPanel / close button (i18n-aware)
 │       ├── MuteToggle.tsx            # Floating mute toggle + localStorage persistence
+│       ├── SimulationPanel.tsx       # Dev-only debug panel rendered when ?sim=1
 │       ├── useCameraPermission.ts    # getUserMedia state machine
 │       ├── useExternalScripts.ts    # A-Frame → MindAR sequential loader + 15s timeout
+│       ├── useSimulation.ts          # Dispatches targetFound/Lost for sim mode
 │       └── useTargetMediaControl.ts # targetFound/Lost handler with Map-cached lookups
 ├── config/
 │   ├── ar.schema.ts                  # Zod schemas — runtime validation source of truth
@@ -192,12 +252,18 @@ See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the component split, bo
 │   ├── cdn.ts                        # A-Frame / MindAR CDN URLs and pinned versions
 │   ├── overlay.ts                    # Asset id helpers + media collection utilities
 │   ├── i18n.ts                       # ja/en label tables, detectLang, resolveLabels
+│   ├── simulation.ts                 # URL query parser for ?sim=1 et al.
 │   └── debug.ts                      # arLog() — gated by NEXT_PUBLIC_AR_DEBUG=1
 ├── tests/
 │   ├── setup.ts                      # Vitest setup (jest-dom matchers, cleanup)
 │   └── unit/                         # Vitest unit tests
-├── e2e/                              # Playwright E2E specs
-├── docs/ARCHITECTURE.md              # Architecture deep-dive
+├── e2e/                              # Playwright E2E specs (functional + visual + a11y)
+├── scripts/
+│   └── check-bundle-size.mjs         # CI bundle-budget gate
+├── docs/
+│   ├── ARCHITECTURE.md               # Architecture deep-dive
+│   ├── TESTING.md                    # Test strategy across all four layers
+│   └── DEPLOY.md                     # Vercel deployment guide
 ├── eslint.config.mjs                 # Flat ESLint config (eslint-config-next)
 ├── playwright.config.ts
 ├── vitest.config.ts
@@ -217,7 +283,7 @@ See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the component split, bo
 |---|---|
 | "HTTPS connection required" UI | You're on HTTP. Use `pnpm dev:https` and visit `https://localhost:3000`. |
 | Camera prompt never appears | Camera is blocked in browser site settings — clear and reload. |
-| `/ar` stays black | `public/targets.mind` is missing or corrupt. Re-compile via the MindAR tool. |
+| `/ar` stays black | `public/targets.mind` is missing or corrupt. Re-compile via the MindAR tool — or use `?sim=1` to verify the overlay pipeline without a marker. |
 | Marker shown but no overlay appears | The image used to compile `targets.mind` doesn't match `marker.png`, or the marker has too few features. Use a high-contrast image. |
 | `customElements` already-registered error after hot reload | A-Frame double-registration. A full page reload fixes it. |
 | Doesn't work on iOS Safari | iOS requires HTTPS and a direct user gesture before `getUserMedia`. The "Start AR" button click is the gesture — make sure it's the first thing the user does. |

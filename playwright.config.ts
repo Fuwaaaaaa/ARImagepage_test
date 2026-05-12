@@ -10,10 +10,20 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
+  // Pin viewport across runs so visual regression screenshots stay stable.
+  // Per-test overrides via `test.use({ viewport: ... })` still work.
+  expect: {
+    toHaveScreenshot: {
+      maxDiffPixelRatio: 0.02,
+      animations: 'disabled',
+      caret: 'hide',
+    },
+  },
   use: {
     baseURL: BASE_URL,
     trace: 'on-first-retry',
     video: 'retain-on-failure',
+    viewport: { width: 1280, height: 800 },
     // Pin to ja-JP so the i18n auto-detection inside <ARScene> renders the
     // Japanese label table that existing specs assert against. Specs that
     // intentionally exercise the English path can override per-test via

@@ -230,6 +230,51 @@ For Vitest, toggle the flag via `vi.stubEnv('NEXT_PUBLIC_AR_DEBUG', '1')`
    - import `multiARConfig` and pass it to `<ARScene config={multiARConfig} />` in your route.
 6. Run `pnpm dev:https` and verify both markers detect their respective overlays.
 
+## Simulation mode
+
+`<ARScene>` reads a `?sim=…` URL query at mount time and, when present,
+short-circuits the parts of the bootstrap pipeline that require a real
+device. The parser is server-safe and lives in
+[`lib/ar/simulation.ts`](../lib/ar/simulation.ts); the dispatching hook is
+[`components/ar/useSimulation.ts`](../components/ar/useSimulation.ts).
+
+| Query | Effect |
+|---|---|
+| `?sim=1` | Activate simulation. Default bypass = both `permission` + `scripts`. |
+| `?sim=1&found=a,b` | Once the scene is ready, dispatch `targetFound` on the listed entities. |
+| `?sim=1&delay=ms` | Apply the auto-fire after `ms` milliseconds (clamped 0..60_000). |
+| `?sim=1&bypass=permission\|scripts` | Bypass only the specified phase; defaults are otherwise still applied. |
+| `?sim=1&bypass=` | Disable both bypasses — useful when you want simulation events only. |
+
+When `bypassPermission` is true, the outer
+`<ARSceneInner>` ignores `useCameraPermission()`'s return value and forces
+`permission = 'granted'`. The hook is **still called** — the Rules of Hooks
+require it — but its output is discarded on the sim path.
+
+When `bypassScripts` is true, the `<Script>` tags for A-Frame and MindAR
+are not rendered, and `useExternalScripts(...)` runs with `canLoad=false`
+(returning `ready=false`). The sim wrapper then forces `ready=true` and
+`timedOut=false`, so `sceneActive` flips immediately and `<ARSceneStage>`
+mounts.
+
+Because A-Frame may not be loaded in pure sim mode, `<a-scene>` and
+`<a-entity>` render as unrecognised HTML elements (no 3D, no marker
+detection). What you *do* get is a fully reactive DOM tree:
+`useTargetMediaControl` still attaches `targetFound` / `targetLost`
+listeners, the SimulationPanel can fire those events on demand, and
+`<video>` / `<audio>` elements in `<a-assets>` still play. That's enough
+to exercise the entire overlay pipeline without a real device.
+
+The `<SimulationPanel>` is rendered only when `simMode.enabled &&
+sceneActive`. It exposes per-target `found` / `lost` buttons with
+deterministic `data-testid` attributes so Playwright specs can drive the
+same events.
+
+Production builds keep simulation mode wired — the API surface is the
+URL, not a build flag — but a one-shot `console.warn` is emitted whenever
+the mode is active so a `?sim=1` URL that escapes into a production
+deployment is visible in devtools.
+
 ## Why HTTPS is required
 
 `navigator.mediaDevices.getUserMedia` returns `undefined` on HTTP except for `localhost`. The dev server is started with `next dev --experimental-https` (`pnpm dev:https`) which automatically issues a self-signed certificate so the camera API is reachable from the same machine. For real devices on a LAN, you need either ngrok or a Vercel preview deployment — see the README troubleshooting section.
